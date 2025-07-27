@@ -201,7 +201,7 @@ async function main() {
   }
 
   // Logo laden als DataURL:
-  const logoBuffer = await fs.readFile(path.resolve('templates/d4c91780-d48e-461f-8cbc-d6681cec445d.png')); // ggf. Dateinamen anpassen!
+  const logoBuffer = await fs.readFile(path.resolve('templates/logo-schwarz.png')); // ggf. Dateinamen anpassen!
   const logoDataUrl = 'data:image/png;base64,' + logoBuffer.toString('base64');
 
   for (const kunde of kunden) {
