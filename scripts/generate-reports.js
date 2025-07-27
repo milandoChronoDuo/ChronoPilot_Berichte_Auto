@@ -74,11 +74,22 @@ function sumIntervals(intervals) {
   let totalSeconds = 0;
   for (const i of intervals) {
     if (!i) continue;
-    const parts = i.split(':');
+    const negative = i.startsWith('-');
+    const parts = (negative ? i.slice(1) : i).split(':');
     if (parts.length !== 3) continue;
     const [h, m, s] = parts.map(Number);
-    totalSeconds += h * 3600 + m * 60 + s;
+    let seconds = h * 3600 + m * 60 + s;
+    if (negative) seconds = -seconds;
+    totalSeconds += seconds;
   }
+  const abs = Math.abs(totalSeconds);
+  const h = Math.floor(abs / 3600);
+  const m = Math.floor((abs % 3600) / 60);
+  const s = abs % 60;
+  const sign = totalSeconds < 0 ? '-' : '';
+  return `${sign}${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
   const h = Math.floor(Math.abs(totalSeconds) / 3600);
   const m = Math.floor((Math.abs(totalSeconds) % 3600) / 60);
   const s = Math.abs(totalSeconds) % 60;
