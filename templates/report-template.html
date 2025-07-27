@@ -4,18 +4,21 @@
   <meta charset="UTF-8" />
   <title>Monatsbericht</title>
   <style>
-    body { font-family: Inter, Arial, sans-serif; margin: 2rem; }
-    h1, h2 { color: #253866; }
-    table { border-collapse: collapse; width: 100%; margin-top: 1rem;}
-    th, td { border: 1px solid #bbb; padding: 6px 10px; text-align: left;}
-    th { background: #f4f6fb; }
-    tfoot td { font-weight: bold; background: #eee;}
+    body { font-family: Inter, Arial, sans-serif; margin: 2rem; background: #fff; color: #111; }
+    h1, h2 { color: #a78bfa; }
+    .logo { width:220px;margin-bottom:18px;}
+    table { border-collapse: collapse; width: 100%; margin-top: 1.2rem;}
+    th, td { border: 1px solid #d5cfff; padding: 8px 10px; text-align: left;}
+    th { background: #ece7fa; color: #a78bfa; font-weight: 600; }
+    tfoot td { font-weight: bold; background: #f6f2ff; color: #253866; }
+    .period { margin-bottom:0.7rem; color: #333; }
   </style>
 </head>
 <body>
+  <img src="file://{{logo_path}}" alt="ChronoDuo Logo" class="logo">
   <h1>{{firma_name}}</h1>
   <h2>Monatsbericht für {{mitarbeiter_name}}</h2>
-  <p>Zeitraum: {{zeitraum_start}} bis {{zeitraum_ende}}</p>
+  <div class="period">Zeitraum: {{zeitraum_start}} bis {{zeitraum_ende}}</div>
   <table>
     <thead>
       <tr>
@@ -33,10 +36,13 @@
     </tbody>
     <tfoot>
       <tr>
-        <td colspan="4">Summe</td>
-        <td>{{summe_netto}}</td>
-        <td>{{summe_uebermin}}</td>
+        <td><b>Summe</b></td>
         <td></td>
+        <td></td>
+        <td></td>
+        <td><b>{{summe_pause}}</b></td>
+        <td><b>{{summe_netto}}</b></td>
+        <td><b>{{summe_uebermin}}</b></td>
       </tr>
     </tfoot>
   </table>
