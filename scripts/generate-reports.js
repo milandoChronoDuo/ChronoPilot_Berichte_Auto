@@ -80,7 +80,11 @@ async function renderPdf(template, vars, outPath) {
   Object.entries(vars).forEach(([key, val]) => {
     html = html.replaceAll(`{{${key}}}`, val);
   });
-  const browser = await puppeteer.launch({ headless: 'new' });
+  // WICHTIG: args: ['--no-sandbox', '--disable-setuid-sandbox'] für GitHub Actions!
+  const browser = await puppeteer.launch({
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
   const page = await browser.newPage();
   await page.setContent(html, { waitUntil: 'networkidle0' });
   await page.pdf({ path: outPath, format: 'A4', printBackground: true });
@@ -166,19 +170,18 @@ async function main() {
 
   for (const kunde of kunden) {
     const { id: kunden_id, name: firma_name, lastversand, erstellungsdatum } = kunde;
+    // --- Zeitraum-Berechnung ---
     let von;
     if (lastversand) {
-// Ab Tag nach dem letzten Versand, letzten Monat (lastversand = 15 → 16. letzter Monat)
       von = new Date(heute.getFullYear(), heute.getMonth() - 1, lastversand + 1);
     } else {
-// 2 Monate zurück, erster Tag des Monats
       von = new Date(heute.getFullYear(), heute.getMonth() - 2, 1);
     }
-
     const bis = new Date(heute);
     bis.setDate(bis.getDate() - 1);
     const zeitraum_start = von.toISOString().split('T')[0];
     const zeitraum_ende = bis.toISOString().split('T')[0];
+    // --- Ende Zeitraum-Berechnung ---
 
     let mitarbeitende;
     try {
