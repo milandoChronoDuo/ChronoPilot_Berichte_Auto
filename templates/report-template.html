@@ -4,21 +4,67 @@
   <meta charset="UTF-8" />
   <title>Monatsbericht</title>
   <style>
-    body { font-family: Inter, Arial, sans-serif; margin: 2rem; background: #fff; color: #111; }
-    h1, h2 { color: #a78bfa; }
-    .logo { width:220px;margin-bottom:18px;}
-    table { border-collapse: collapse; width: 100%; margin-top: 1.2rem;}
-    th, td { border: 1px solid #d5cfff; padding: 8px 10px; text-align: left;}
-    th { background: #ece7fa; color: #a78bfa; font-weight: 600; }
-    tfoot td { font-weight: bold; background: #f6f2ff; color: #253866; }
-    .period { margin-bottom:0.7rem; color: #333; }
+    :root {
+      --chrono-lila: #8255E7;
+      --chrono-lila-dark: #6041a8;
+      --chrono-white: #fff;
+      --chrono-black: #111;
+      --chrono-pink: #fae9f7;
+    }
+    body {
+      font-family: Inter, Arial, sans-serif;
+      margin: 2rem;
+      background: var(--chrono-white);
+      color: var(--chrono-black);
+    }
+    .logo {
+      width: 280px;
+      margin-bottom: 1.2rem;
+    }
+    h1, h2 {
+      color: var(--chrono-lila);
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 1.5rem;
+      background: var(--chrono-pink);
+      color: var(--chrono-black);
+    }
+    th, td {
+      border: 1.2px solid var(--chrono-lila);
+      padding: 8px 12px;
+      text-align: left;
+    }
+    th {
+      background: var(--chrono-lila);
+      color: var(--chrono-white);
+      font-weight: 700;
+      font-size: 1.08em;
+      letter-spacing: 0.5px;
+    }
+    tfoot td {
+      font-weight: bold;
+      background: var(--chrono-lila) !important;
+      color: var(--chrono-white) !important;
+      font-size: 1.07em;
+      border-top: 2px solid var(--chrono-lila-dark);
+    }
+    .period {
+      margin-top: 0.7rem;
+      margin-bottom: 0.7rem;
+      color: var(--chrono-black);
+      font-size: 1.08rem;
+    }
   </style>
 </head>
 <body>
-  <img src="file://{{logo_path}}" alt="ChronoDuo Logo" class="logo">
+  <img src="file://{{logo_path}}" alt="ChronoDuo Logo" class="logo" />
   <h1>{{firma_name}}</h1>
   <h2>Monatsbericht für {{mitarbeiter_name}}</h2>
-  <div class="period">Zeitraum: {{zeitraum_start}} bis {{zeitraum_ende}}</div>
+  <div class="period">
+    Zeitraum: {{zeitraum_start}} bis {{zeitraum_ende}}
+  </div>
   <table>
     <thead>
       <tr>
