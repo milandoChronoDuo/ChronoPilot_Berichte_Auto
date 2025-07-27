@@ -241,8 +241,9 @@ async function main() {
         summe_pause: pauseSum,
         summe_netto: nettoSum,
         summe_uebermin: ueberSum,
-        logo_path: path.resolve('templates/chronoduo.png')
+        logo_path: path.resolve('templates/logo-schwarz.png')
       };
+
       const baseFile = `${sanitizeFilename(firma_name)}_${heute.getMonth() + 1}_${heute.getFullYear()}_${sanitizeFilename(ma_name)}`;
       const pdfPath = `./tmp/${baseFile}.pdf`;
       const xlsxPath = `./tmp/${baseFile}.xlsx`;
