@@ -10,35 +10,39 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const BUCKET = 'berichte';
 
+console.log('Skript geladen. ENV gesetzt?', !!SUPABASE_URL, !!SUPABASE_SERVICE_KEY);
+
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-  throw new Error('SUPABASE_URL und SUPABASE_SERVICE_KEY müssen gesetzt sein!');
+  console.error('FEHLER: SUPABASE_URL oder SUPABASE_SERVICE_KEY fehlen!');
+  process.exit(1);
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 async function getKundenMitVersandTag(heute) {
+  console.log('Hole Kunden für Versandtag:', heute.getDate());
   const { data, error } = await supabase
     .from('kunden')
     .select('*')
     .eq('istversand', heute.getDate())
     .eq('status', 'aktiv');
-
   if (error) throw error;
   return data;
 }
 
 async function getMitarbeitende(kunden_id) {
+  console.log('Hole Mitarbeitende für Kunde:', kunden_id);
   const { data, error } = await supabase
     .from('mitarbeitende')
     .select('*')
     .eq('kunden_id', kunden_id)
     .is('deleted_at', null);
-
   if (error) throw error;
   return data;
 }
 
 async function getZeiten(kunden_id, mitarbeiter_id, von, bis) {
+  console.log(`Hole Tageszeiten für ${mitarbeiter_id} von ${von} bis ${bis}`);
   const { data, error } = await supabase
     .from('tageszeiten')
     .select('*')
@@ -47,19 +51,16 @@ async function getZeiten(kunden_id, mitarbeiter_id, von, bis) {
     .gte('datum', von)
     .lte('datum', bis)
     .order('datum', { ascending: true });
-
   if (error) throw error;
   return data;
 }
 
 function intervalToStr(interval) {
   if (!interval) return '';
-  // PostgreSQL Interval wird von Supabase als z.B. "4:30:00" (4h 30m)
   return interval;
 }
 
 function sumIntervals(intervals) {
-  // "4:30:00" + "2:45:00" = "7:15:00" etc.
   let totalSeconds = 0;
   for (const i of intervals) {
     if (!i) continue;
@@ -79,7 +80,6 @@ async function renderPdf(template, vars, outPath) {
   Object.entries(vars).forEach(([key, val]) => {
     html = html.replaceAll(`{{${key}}}`, val);
   });
-
   const browser = await puppeteer.launch({ headless: 'new' });
   const page = await browser.newPage();
   await page.setContent(html, { waitUntil: 'networkidle0' });
@@ -99,7 +99,6 @@ async function renderExcel(zeiten, outPath) {
     { header: 'Über-/Minusstunden', key: 'ueber_unter_stunden', width: 14 },
     { header: 'Status', key: 'tagesstatus', width: 12 },
   ];
-
   for (const z of zeiten) {
     sheet.addRow({
       datum: z.datum,
@@ -111,8 +110,6 @@ async function renderExcel(zeiten, outPath) {
       tagesstatus: z.tagesstatus || '',
     });
   }
-
-  // Summenzeile
   const nettoSum = sumIntervals(zeiten.map(z => z.gesamt_netto));
   const ueberSum = sumIntervals(zeiten.map(z => z.ueber_unter_stunden));
   sheet.addRow({});
@@ -121,7 +118,6 @@ async function renderExcel(zeiten, outPath) {
     gesamt_netto: nettoSum,
     ueber_unter_stunden: ueberSum,
   });
-
   await workbook.xlsx.writeFile(outPath);
 }
 
@@ -141,16 +137,32 @@ async function uploadToBucket(localPath, bucket, remotePath) {
 }
 
 async function main() {
+  console.log('Starte Berichtsexport. Heute:', new Date().toISOString());
+  await fs.mkdir('./tmp', { recursive: true });
+
   const heute = new Date();
   const heuteDatum = heute.toISOString().split('T')[0];
-  const kunden = await getKundenMitVersandTag(heute);
+  let kunden;
+  try {
+    kunden = await getKundenMitVersandTag(heute);
+  } catch (err) {
+    console.error('Fehler beim Laden der Kunden:', err);
+    return;
+  }
+  console.log('Gefundene Kunden:', kunden.length, kunden.map(k => k.name).join(', '));
 
   if (!kunden.length) {
     console.log('Keine Firmen für Bericht heute.');
     return;
   }
 
-  const template = await fs.readFile(path.resolve('templates/report-template.html'), 'utf8');
+  let template;
+  try {
+    template = await fs.readFile(path.resolve('templates/report-template.html'), 'utf8');
+  } catch (err) {
+    console.error('FEHLER: report-template.html nicht gefunden!', err);
+    return;
+  }
 
   for (const kunde of kunden) {
     const { id: kunden_id, name: firma_name, lastversand, erstellungsdatum } = kunde;
@@ -163,13 +175,31 @@ async function main() {
     const zeitraum_start = von.toISOString().split('T')[0];
     const zeitraum_ende = bis.toISOString().split('T')[0];
 
-    const mitarbeitende = await getMitarbeitende(kunden_id);
+    let mitarbeitende;
+    try {
+      mitarbeitende = await getMitarbeitende(kunden_id);
+    } catch (err) {
+      console.error('Fehler beim Laden der Mitarbeitenden:', err);
+      continue;
+    }
+    console.log(`Bearbeite Kunde: ${firma_name} (${kunden_id})`);
+    console.log(`Zeitraum: ${zeitraum_start} bis ${zeitraum_ende}`);
+    console.log('Gefundene Mitarbeitende:', mitarbeitende.map(m => m.name).join(', '));
+
     for (const ma of mitarbeitende) {
       const { id: ma_id, name: ma_name } = ma;
-      const zeiten = await getZeiten(kunden_id, ma_id, zeitraum_start, zeitraum_ende);
+      let zeiten;
+      try {
+        zeiten = await getZeiten(kunden_id, ma_id, zeitraum_start, zeitraum_ende);
+      } catch (err) {
+        console.error(`Fehler beim Laden der Tageszeiten für ${ma_name}:`, err);
+        continue;
+      }
+      console.log(`Lese tageszeiten für ${ma_name} (${ma_id}) von ${zeitraum_start} bis ${zeitraum_ende}`);
+      console.log(`Gefundene tageszeiten:`, zeiten.length);
+
       if (!zeiten.length) continue;
 
-      // Tabellen-HTML bauen
       const tableRows = zeiten.map(z => `
         <tr>
           <td>${z.datum}</td>
@@ -184,7 +214,6 @@ async function main() {
       const nettoSum = sumIntervals(zeiten.map(z => z.gesamt_netto));
       const ueberSum = sumIntervals(zeiten.map(z => z.ueber_unter_stunden));
 
-      // PDF erstellen
       const pdfVars = {
         firma_name,
         mitarbeiter_name: ma_name,
@@ -197,22 +226,32 @@ async function main() {
       const baseFile = `${sanitizeFilename(firma_name)}_${heute.getMonth() + 1}_${heute.getFullYear()}_${sanitizeFilename(ma_name)}`;
       const pdfPath = `./tmp/${baseFile}.pdf`;
       const xlsxPath = `./tmp/${baseFile}.xlsx`;
-      await fs.mkdir('./tmp', { recursive: true });
-      await renderPdf(template, pdfVars, pdfPath);
-      await renderExcel(zeiten, xlsxPath);
 
-      // Upload in Storage
+      try {
+        await renderPdf(template, pdfVars, pdfPath);
+        await renderExcel(zeiten, xlsxPath);
+      } catch (err) {
+        console.error(`Fehler beim Erstellen von PDF/Excel für ${ma_name}:`, err);
+        continue;
+      }
+
       const remotePdfPath = `${kunden_id}/${heute.getFullYear()}_${heute.getMonth() + 1}/${baseFile}.pdf`;
       const remoteXlsxPath = `${kunden_id}/${heute.getFullYear()}_${heute.getMonth() + 1}/${baseFile}.xlsx`;
-      await uploadToBucket(pdfPath, BUCKET, remotePdfPath);
-      await uploadToBucket(xlsxPath, BUCKET, remoteXlsxPath);
 
-      console.log(`Bericht für ${firma_name} / ${ma_name} exportiert und hochgeladen.`);
+      try {
+        await uploadToBucket(pdfPath, BUCKET, remotePdfPath);
+        await uploadToBucket(xlsxPath, BUCKET, remoteXlsxPath);
+        console.log(`Bericht für ${firma_name} / ${ma_name} exportiert und hochgeladen.`);
+      } catch (err) {
+        console.error(`Fehler beim Upload für ${ma_name}:`, err);
+      }
     }
   }
 }
 
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(() => { console.log('Berichtsexport fertig!'); })
+  .catch(err => {
+    console.error('FEHLER im Skript:', err);
+    process.exit(1);
+  });
