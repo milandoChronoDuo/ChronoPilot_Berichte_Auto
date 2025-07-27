@@ -26,7 +26,6 @@ function formatDateDE(iso) {
 }
 
 async function getKundenMitVersandTag(heute) {
-  console.log('Hole Kunden für Versandtag:', heute.getDate());
   const { data, error } = await supabase
     .from('kunden')
     .select('*')
@@ -37,7 +36,6 @@ async function getKundenMitVersandTag(heute) {
 }
 
 async function getMitarbeitende(kunden_id) {
-  console.log('Hole Mitarbeitende für Kunde:', kunden_id);
   const { data, error } = await supabase
     .from('mitarbeitende')
     .select('*')
@@ -48,7 +46,6 @@ async function getMitarbeitende(kunden_id) {
 }
 
 async function getZeiten(kunden_id, mitarbeiter_id, von, bis) {
-  console.log(`Hole Tageszeiten für ${mitarbeiter_id} von ${von} bis ${bis}`);
   const { data, error } = await supabase
     .from('tageszeiten')
     .select('*')
@@ -147,6 +144,34 @@ async function uploadToBucket(localPath, bucket, remotePath) {
   if (error) throw error;
 }
 
+async function getFeiertage(land, bundesland, von, bis) {
+  // holt alle Feiertage für Zeitraum für das Bundesland
+  const { data, error } = await supabase
+    .from('feiertage')
+    .select('datum')
+    .eq('land', land)
+    .eq('bundesland', bundesland)
+    .gte('datum', von)
+    .lte('datum', bis);
+  if (error) throw error;
+  return (data || []).map(f => f.datum);
+}
+
+function getNextVersanddatum(sollversand, heute, feiertage) {
+  // Ziel: im nächsten Monat den sollversand finden, ggf. zurückschieben falls Sa/So oder Feiertag
+  const jahr = heute.getMonth() === 11 ? heute.getFullYear() + 1 : heute.getFullYear();
+  const monat = (heute.getMonth() + 1) % 12; // nächster Monat, 0-basiert!
+  let d = new Date(jahr, monat, sollversand);
+  // Wenn der Tag in der Vergangenheit, dann nächsten Monat noch einen weiter!
+  if (d <= heute) d = new Date(jahr, monat + 1, sollversand);
+
+  // Schiebe zurück auf Freitag, falls Sa/So
+  while (d.getDay() === 0 || d.getDay() === 6 || feiertage.includes(d.toISOString().split('T')[0])) {
+    d.setDate(d.getDate() - 1);
+  }
+  return d;
+}
+
 async function main() {
   console.log('Starte Berichtsexport. Heute:', new Date().toISOString());
   await fs.mkdir('./tmp', { recursive: true });
@@ -175,9 +200,12 @@ async function main() {
     return;
   }
 
+  // Logo laden als DataURL:
+  const logoBuffer = await fs.readFile(path.resolve('templates/d4c91780-d48e-461f-8cbc-d6681cec445d.png')); // ggf. Dateinamen anpassen!
+  const logoDataUrl = 'data:image/png;base64,' + logoBuffer.toString('base64');
+
   for (const kunde of kunden) {
-    const { id: kunden_id, name: firma_name, lastversand, erstellungsdatum } = kunde;
-    // Zeitraum-Berechnung
+    const { id: kunden_id, name: firma_name, lastversand, erstellungsdatum, sollversand, land, bundesland } = kunde;
     let von;
     if (lastversand) {
       von = new Date(heute.getFullYear(), heute.getMonth() - 1, lastversand + 1);
@@ -211,12 +239,8 @@ async function main() {
         console.error(`Fehler beim Laden der Tageszeiten für ${ma_name}:`, err);
         continue;
       }
-      console.log(`Lese tageszeiten für ${ma_name} (${ma_id}) von ${zeitraum_start} bis ${zeitraum_ende}`);
-      console.log(`Gefundene tageszeiten:`, zeiten.length);
-
       if (!zeiten.length) continue;
 
-      // Tabellenzeile bauen
       const tableRows = zeiten.map(z => `
         <tr>
           <td>${formatDateDE(z.datum)}</td>
@@ -241,9 +265,8 @@ async function main() {
         summe_pause: pauseSum,
         summe_netto: nettoSum,
         summe_uebermin: ueberSum,
-        logo_path: path.resolve('templates/logo-schwarz.png')
+        logo_dataurl: logoDataUrl
       };
-
       const baseFile = `${sanitizeFilename(firma_name)}_${heute.getMonth() + 1}_${heute.getFullYear()}_${sanitizeFilename(ma_name)}`;
       const pdfPath = `./tmp/${baseFile}.pdf`;
       const xlsxPath = `./tmp/${baseFile}.xlsx`;
@@ -269,16 +292,27 @@ async function main() {
       }
     }
 
-    // lastversand setzen, wenn mind. ein Bericht erzeugt wurde
-    if (berichteErzeugt) {
+    // lastversand & istversand setzen, wenn mind. ein Bericht erzeugt wurde
+    if (berichteErzeugt && sollversand) {
       try {
+        // Feiertage für den nächsten Monat laden (plus Puffer)
+        const nextMonth = (heute.getMonth() + 1) % 12;
+        const nextYear = heute.getMonth() === 11 ? heute.getFullYear() + 1 : heute.getFullYear();
+        const feiertage = await getFeiertage(
+          land,
+          bundesland,
+          `${nextYear}-${String(nextMonth+1).padStart(2, '0')}-01`,
+          `${nextYear}-${String(nextMonth+1).padStart(2, '0')}-31`
+        );
+        // Nächster Versandtag bestimmen
+        const nextVersand = getNextVersanddatum(sollversand, heute, feiertage);
         await supabase
           .from('kunden')
-          .update({ lastversand: heute.getDate() })
+          .update({ lastversand: heute.getDate(), istversand: nextVersand.getDate() })
           .eq('id', kunden_id);
-        console.log(`lastversand für ${firma_name} aktualisiert!`);
+        console.log(`lastversand & istversand für ${firma_name} aktualisiert! Neuer istversand: ${nextVersand.toISOString().slice(0,10)}`);
       } catch (err) {
-        console.error(`Fehler beim Aktualisieren von lastversand für ${firma_name}:`, err);
+        console.error(`Fehler beim Aktualisieren von lastversand/istversand für ${firma_name}:`, err);
       }
     }
   }
