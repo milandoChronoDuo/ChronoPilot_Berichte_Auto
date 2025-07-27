@@ -211,7 +211,7 @@ async function main() {
     const { id: kunden_id, name: firma_name, lastversand, erstellungsdatum, sollversand, land, bundesland } = kunde;
     let von;
     if (lastversand) {
-      von = new Date(heute.getFullYear(), heute.getMonth() - 1, lastversand + 1);
+      von = new Date(heute.getFullYear(), heute.getMonth() - 1, lastversand);
     } else {
       von = new Date(heute.getFullYear(), heute.getMonth() - 2, 1);
     }
