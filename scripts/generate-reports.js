@@ -18,6 +18,8 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+const ueberSum = formatSignedInterval(sumIntervals(zeiten.map(z => z.ueber_unter_stunden)));
+
 
 function formatDateDE(iso) {
   if (!iso) return '';
@@ -76,6 +78,13 @@ function sumIntervals(intervals) {
   const m = Math.floor((totalSeconds % 3600) / 60);
   const s = totalSeconds % 60;
   return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+function formatSignedInterval(str) {
+  if (!str) return '';
+  // Schon Minus am Anfang? Dann typografisches Minus:
+  if (str.startsWith('-')) return '−' + str.substring(1); // echtes typografisches Minus!
+  return str;
 }
 
 async function renderPdf(template, vars, outPath) {
@@ -171,6 +180,9 @@ function getNextVersanddatum(sollversand, heute, feiertage) {
   }
   return d;
 }
+
+
+
 
 async function main() {
   console.log('Starte Berichtsexport. Heute:', new Date().toISOString());
