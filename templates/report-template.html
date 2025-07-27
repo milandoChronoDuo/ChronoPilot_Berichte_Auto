@@ -43,7 +43,7 @@
       font-size: 1.08em;
       letter-spacing: 0.5px;
     }
-    tfoot td {
+    tr.summe td {
       font-weight: bold;
       background: var(--chrono-lila) !important;
       color: var(--chrono-white) !important;
@@ -79,9 +79,7 @@
     </thead>
     <tbody>
       {{table_rows}}
-    </tbody>
-    <tfoot>
-      <tr>
+      <tr class="summe">
         <td><b>Summe</b></td>
         <td></td>
         <td></td>
@@ -90,7 +88,7 @@
         <td><b>{{summe_netto}}</b></td>
         <td><b>{{summe_uebermin}}</b></td>
       </tr>
-    </tfoot>
+    </tbody>
   </table>
 </body>
 </html>
