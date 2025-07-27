@@ -90,12 +90,6 @@ function sumIntervals(intervals) {
   return `${sign}${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
-  const h = Math.floor(Math.abs(totalSeconds) / 3600);
-  const m = Math.floor((Math.abs(totalSeconds) % 3600) / 60);
-  const s = Math.abs(totalSeconds) % 60;
-  const sign = totalSeconds < 0 ? '-' : '';
-  return `${sign}${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-}
 
 async function renderPdf(template, vars, outPath) {
   let html = template;
