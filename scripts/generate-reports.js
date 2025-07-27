@@ -166,10 +166,15 @@ async function main() {
 
   for (const kunde of kunden) {
     const { id: kunden_id, name: firma_name, lastversand, erstellungsdatum } = kunde;
-    const von =
-      lastversand
-        ? new Date(heute.getFullYear(), heute.getMonth() - 1, lastversand + 1)
-        : new Date(erstellungsdatum);
+    let von;
+    if (lastversand) {
+// Ab Tag nach dem letzten Versand, letzten Monat (lastversand = 15 → 16. letzter Monat)
+      von = new Date(heute.getFullYear(), heute.getMonth() - 1, lastversand + 1);
+    } else {
+// 2 Monate zurück, erster Tag des Monats
+      von = new Date(heute.getFullYear(), heute.getMonth() - 2, 1);
+    }
+
     const bis = new Date(heute);
     bis.setDate(bis.getDate() - 1);
     const zeitraum_start = von.toISOString().split('T')[0];
