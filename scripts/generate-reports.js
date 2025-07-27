@@ -18,13 +18,18 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-const ueberSum = formatSignedInterval(sumIntervals(zeiten.map(z => z.ueber_unter_stunden)));
-
 
 function formatDateDE(iso) {
   if (!iso) return '';
   const d = new Date(iso);
   return d.toLocaleDateString('de-DE');
+}
+
+function formatSignedInterval(str) {
+  if (!str) return '';
+  // Typografisches Minus für PDFs
+  if (str.startsWith('-')) return '−' + str.substring(1);
+  return str;
 }
 
 async function getKundenMitVersandTag(heute) {
@@ -74,17 +79,11 @@ function sumIntervals(intervals) {
     const [h, m, s] = parts.map(Number);
     totalSeconds += h * 3600 + m * 60 + s;
   }
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-}
-
-function formatSignedInterval(str) {
-  if (!str) return '';
-  // Schon Minus am Anfang? Dann typografisches Minus:
-  if (str.startsWith('-')) return '−' + str.substring(1); // echtes typografisches Minus!
-  return str;
+  const h = Math.floor(Math.abs(totalSeconds) / 3600);
+  const m = Math.floor((Math.abs(totalSeconds) % 3600) / 60);
+  const s = Math.abs(totalSeconds) % 60;
+  const sign = totalSeconds < 0 ? '-' : '';
+  return `${sign}${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
 async function renderPdf(template, vars, outPath) {
@@ -154,7 +153,6 @@ async function uploadToBucket(localPath, bucket, remotePath) {
 }
 
 async function getFeiertage(land, bundesland, von, bis) {
-  // holt alle Feiertage für Zeitraum für das Bundesland
   const { data, error } = await supabase
     .from('feiertage')
     .select('datum')
@@ -167,29 +165,22 @@ async function getFeiertage(land, bundesland, von, bis) {
 }
 
 function getNextVersanddatum(sollversand, heute, feiertage) {
-  // Ziel: im nächsten Monat den sollversand finden, ggf. zurückschieben falls Sa/So oder Feiertag
   const jahr = heute.getMonth() === 11 ? heute.getFullYear() + 1 : heute.getFullYear();
-  const monat = (heute.getMonth() + 1) % 12; // nächster Monat, 0-basiert!
+  const monat = (heute.getMonth() + 1) % 12;
   let d = new Date(jahr, monat, sollversand);
-  // Wenn der Tag in der Vergangenheit, dann nächsten Monat noch einen weiter!
   if (d <= heute) d = new Date(jahr, monat + 1, sollversand);
-
-  // Schiebe zurück auf Freitag, falls Sa/So
+  // Schiebe zurück auf Freitag, falls Sa/So oder Feiertag
   while (d.getDay() === 0 || d.getDay() === 6 || feiertage.includes(d.toISOString().split('T')[0])) {
     d.setDate(d.getDate() - 1);
   }
   return d;
 }
 
-
-
-
 async function main() {
   console.log('Starte Berichtsexport. Heute:', new Date().toISOString());
   await fs.mkdir('./tmp', { recursive: true });
 
   const heute = new Date();
-  const heuteDatum = heute.toISOString().split('T')[0];
   let kunden;
   try {
     kunden = await getKundenMitVersandTag(heute);
@@ -213,14 +204,14 @@ async function main() {
   }
 
   // Logo laden als DataURL:
-  const logoBuffer = await fs.readFile(path.resolve('templates/logo-schwarz.png')); // ggf. Dateinamen anpassen!
+  const logoBuffer = await fs.readFile(path.resolve('templates/logo.png')); // Passe ggf. Dateiname an!
   const logoDataUrl = 'data:image/png;base64,' + logoBuffer.toString('base64');
 
   for (const kunde of kunden) {
     const { id: kunden_id, name: firma_name, lastversand, erstellungsdatum, sollversand, land, bundesland } = kunde;
     let von;
     if (lastversand) {
-      von = new Date(heute.getFullYear(), heute.getMonth() - 1, lastversand);
+      von = new Date(heute.getFullYear(), heute.getMonth() - 1, lastversand + 1);
     } else {
       von = new Date(heute.getFullYear(), heute.getMonth() - 2, 1);
     }
@@ -253,6 +244,13 @@ async function main() {
       }
       if (!zeiten.length) continue;
 
+      // Summen berechnen
+      const pauseSum = sumIntervals(zeiten.map(z => z.gesamt_pause));
+      const nettoSum = sumIntervals(zeiten.map(z => z.gesamt_netto));
+      const ueberSumRaw = sumIntervals(zeiten.map(z => z.ueber_unter_stunden));
+      const ueberSum = formatSignedInterval(ueberSumRaw);
+
+      // Tabellenzeilen aufbauen
       const tableRows = zeiten.map(z => `
         <tr>
           <td>${formatDateDE(z.datum)}</td>
@@ -261,12 +259,9 @@ async function main() {
           <td>${z.letzter_ende ? z.letzter_ende.substring(11, 16) : ''}</td>
           <td>${intervalToStr(z.gesamt_pause)}</td>
           <td>${intervalToStr(z.gesamt_netto)}</td>
-          <td>${intervalToStr(z.ueber_unter_stunden)}</td>
+          <td>${formatSignedInterval(intervalToStr(z.ueber_unter_stunden))}</td>
         </tr>
       `).join('\n');
-      const pauseSum = sumIntervals(zeiten.map(z => z.gesamt_pause));
-      const nettoSum = sumIntervals(zeiten.map(z => z.gesamt_netto));
-      const ueberSum = sumIntervals(zeiten.map(z => z.ueber_unter_stunden));
 
       const pdfVars = {
         firma_name,
@@ -307,7 +302,6 @@ async function main() {
     // lastversand & istversand setzen, wenn mind. ein Bericht erzeugt wurde
     if (berichteErzeugt && sollversand) {
       try {
-        // Feiertage für den nächsten Monat laden (plus Puffer)
         const nextMonth = (heute.getMonth() + 1) % 12;
         const nextYear = heute.getMonth() === 11 ? heute.getFullYear() + 1 : heute.getFullYear();
         const feiertage = await getFeiertage(
@@ -316,7 +310,6 @@ async function main() {
           `${nextYear}-${String(nextMonth+1).padStart(2, '0')}-01`,
           `${nextYear}-${String(nextMonth+1).padStart(2, '0')}-31`
         );
-        // Nächster Versandtag bestimmen
         const nextVersand = getNextVersanddatum(sollversand, heute, feiertage);
         await supabase
           .from('kunden')
