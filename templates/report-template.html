@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Monatsbericht</title>
+  <style>
+    body { font-family: Inter, Arial, sans-serif; margin: 2rem; }
+    h1, h2 { color: #253866; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem;}
+    th, td { border: 1px solid #bbb; padding: 6px 10px; text-align: left;}
+    th { background: #f4f6fb; }
+    tfoot td { font-weight: bold; background: #eee;}
+  </style>
+</head>
+<body>
+  <h1>{{firma_name}}</h1>
+  <h2>Monatsbericht für {{mitarbeiter_name}}</h2>
+  <p>Zeitraum: {{zeitraum_start}} bis {{zeitraum_ende}}</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Datum</th>
+        <th>Status</th>
+        <th>Start</th>
+        <th>Ende</th>
+        <th>Pause</th>
+        <th>Netto</th>
+        <th>Über-/Minusstunden</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{table_rows}}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="4">Summe</td>
+        <td>{{summe_netto}}</td>
+        <td>{{summe_uebermin}}</td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+</body>
+</html>
