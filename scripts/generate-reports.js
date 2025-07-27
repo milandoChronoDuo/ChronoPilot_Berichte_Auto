@@ -19,6 +19,12 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
+function formatDateDE(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('de-DE');
+}
+
 async function getKundenMitVersandTag(heute) {
   console.log('Hole Kunden für Versandtag:', heute.getDate());
   const { data, error } = await supabase
@@ -80,7 +86,6 @@ async function renderPdf(template, vars, outPath) {
   Object.entries(vars).forEach(([key, val]) => {
     html = html.replaceAll(`{{${key}}}`, val);
   });
-  // WICHTIG: args: ['--no-sandbox', '--disable-setuid-sandbox'] für GitHub Actions!
   const browser = await puppeteer.launch({
     headless: 'new',
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
@@ -96,29 +101,31 @@ async function renderExcel(zeiten, outPath) {
   const sheet = workbook.addWorksheet('Monatsbericht');
   sheet.columns = [
     { header: 'Datum', key: 'datum', width: 12 },
-    { header: 'Start', key: 'erster_start', width: 16 },
-    { header: 'Ende', key: 'letzter_ende', width: 16 },
+    { header: 'Status', key: 'tagesstatus', width: 16 },
+    { header: 'Start', key: 'erster_start', width: 10 },
+    { header: 'Ende', key: 'letzter_ende', width: 10 },
     { header: 'Pause', key: 'gesamt_pause', width: 10 },
     { header: 'Netto', key: 'gesamt_netto', width: 10 },
-    { header: 'Über-/Minusstunden', key: 'ueber_unter_stunden', width: 14 },
-    { header: 'Status', key: 'tagesstatus', width: 12 },
+    { header: 'Über-/Minusstunden', key: 'ueber_unter_stunden', width: 14 }
   ];
   for (const z of zeiten) {
     sheet.addRow({
-      datum: z.datum,
+      datum: formatDateDE(z.datum),
+      tagesstatus: z.tagesstatus || '',
       erster_start: z.erster_start ? z.erster_start.substring(11, 16) : '',
       letzter_ende: z.letzter_ende ? z.letzter_ende.substring(11, 16) : '',
       gesamt_pause: intervalToStr(z.gesamt_pause),
       gesamt_netto: intervalToStr(z.gesamt_netto),
       ueber_unter_stunden: intervalToStr(z.ueber_unter_stunden),
-      tagesstatus: z.tagesstatus || '',
     });
   }
+  const pauseSum = sumIntervals(zeiten.map(z => z.gesamt_pause));
   const nettoSum = sumIntervals(zeiten.map(z => z.gesamt_netto));
   const ueberSum = sumIntervals(zeiten.map(z => z.ueber_unter_stunden));
   sheet.addRow({});
   sheet.addRow({
     datum: 'Summe',
+    gesamt_pause: pauseSum,
     gesamt_netto: nettoSum,
     ueber_unter_stunden: ueberSum,
   });
@@ -170,7 +177,7 @@ async function main() {
 
   for (const kunde of kunden) {
     const { id: kunden_id, name: firma_name, lastversand, erstellungsdatum } = kunde;
-    // --- Zeitraum-Berechnung ---
+    // Zeitraum-Berechnung
     let von;
     if (lastversand) {
       von = new Date(heute.getFullYear(), heute.getMonth() - 1, lastversand + 1);
@@ -181,7 +188,6 @@ async function main() {
     bis.setDate(bis.getDate() - 1);
     const zeitraum_start = von.toISOString().split('T')[0];
     const zeitraum_ende = bis.toISOString().split('T')[0];
-    // --- Ende Zeitraum-Berechnung ---
 
     let mitarbeitende;
     try {
@@ -193,6 +199,8 @@ async function main() {
     console.log(`Bearbeite Kunde: ${firma_name} (${kunden_id})`);
     console.log(`Zeitraum: ${zeitraum_start} bis ${zeitraum_ende}`);
     console.log('Gefundene Mitarbeitende:', mitarbeitende.map(m => m.name).join(', '));
+
+    let berichteErzeugt = false;
 
     for (const ma of mitarbeitende) {
       const { id: ma_id, name: ma_name } = ma;
@@ -208,28 +216,32 @@ async function main() {
 
       if (!zeiten.length) continue;
 
+      // Tabellenzeile bauen
       const tableRows = zeiten.map(z => `
         <tr>
-          <td>${z.datum}</td>
+          <td>${formatDateDE(z.datum)}</td>
+          <td>${z.tagesstatus || ''}</td>
           <td>${z.erster_start ? z.erster_start.substring(11, 16) : ''}</td>
           <td>${z.letzter_ende ? z.letzter_ende.substring(11, 16) : ''}</td>
           <td>${intervalToStr(z.gesamt_pause)}</td>
           <td>${intervalToStr(z.gesamt_netto)}</td>
           <td>${intervalToStr(z.ueber_unter_stunden)}</td>
-          <td>${z.tagesstatus || ''}</td>
         </tr>
       `).join('\n');
+      const pauseSum = sumIntervals(zeiten.map(z => z.gesamt_pause));
       const nettoSum = sumIntervals(zeiten.map(z => z.gesamt_netto));
       const ueberSum = sumIntervals(zeiten.map(z => z.ueber_unter_stunden));
 
       const pdfVars = {
         firma_name,
         mitarbeiter_name: ma_name,
-        zeitraum_start,
-        zeitraum_ende,
+        zeitraum_start: formatDateDE(zeitraum_start),
+        zeitraum_ende: formatDateDE(zeitraum_ende),
         table_rows: tableRows,
+        summe_pause: pauseSum,
         summe_netto: nettoSum,
         summe_uebermin: ueberSum,
+        logo_path: path.resolve('templates/chronoduo.png')
       };
       const baseFile = `${sanitizeFilename(firma_name)}_${heute.getMonth() + 1}_${heute.getFullYear()}_${sanitizeFilename(ma_name)}`;
       const pdfPath = `./tmp/${baseFile}.pdf`;
@@ -250,8 +262,22 @@ async function main() {
         await uploadToBucket(pdfPath, BUCKET, remotePdfPath);
         await uploadToBucket(xlsxPath, BUCKET, remoteXlsxPath);
         console.log(`Bericht für ${firma_name} / ${ma_name} exportiert und hochgeladen.`);
+        berichteErzeugt = true;
       } catch (err) {
         console.error(`Fehler beim Upload für ${ma_name}:`, err);
+      }
+    }
+
+    // lastversand setzen, wenn mind. ein Bericht erzeugt wurde
+    if (berichteErzeugt) {
+      try {
+        await supabase
+          .from('kunden')
+          .update({ lastversand: heute.getDate() })
+          .eq('id', kunden_id);
+        console.log(`lastversand für ${firma_name} aktualisiert!`);
+      } catch (err) {
+        console.error(`Fehler beim Aktualisieren von lastversand für ${firma_name}:`, err);
       }
     }
   }
