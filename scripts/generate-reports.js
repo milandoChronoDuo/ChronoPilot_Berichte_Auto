@@ -211,7 +211,7 @@ function getValidVersandtag(year, month, tag, feiertage) {
   const lastDay = getLastDayOfMonth(year, month);
   if (tag > lastDay) d.setDate(lastDay);
 
-  // Rückwärts auf letzten Arbeitstag, falls Wochenende/Feiertag
+  // Solange das Datum ein Samstag, Sonntag ODER Feiertag ist: Einen Tag zurück!
   while (
     d.getDay() === 0 || // Sonntag
     d.getDay() === 6 || // Samstag
@@ -221,6 +221,7 @@ function getValidVersandtag(year, month, tag, feiertage) {
   }
   return d;
 }
+
 
 async function main() {
   console.log('Starte Berichtsexport. Heute:', new Date().toISOString());
