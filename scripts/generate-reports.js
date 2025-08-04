@@ -27,7 +27,6 @@ function formatDateDE(iso) {
 
 function formatSignedInterval(str) {
   if (!str) return '';
-  // Typografisches Minus für PDFs
   if (str.startsWith('-')) return '−' + str.substring(1);
   return str;
 }
@@ -66,23 +65,19 @@ async function getZeiten(kunden_id, mitarbeiter_id, von, bis) {
 }
 
 function intervalToStr(interval) {
-  // Wandelt alles robust in "±hh:mm" um, egal wie der Wert aussieht
   if (!interval) return '00:00';
-  // Pattern nimmt auch "12:34:56.123456", "-05:23:01", "7:01", usw.
   const m = String(interval).match(/^(-)?(\d+):(\d{2})(?::(\d{2})(?:\.\d{1,6})?)?$/);
-  if (!m) return interval; // Fallback: unverändert
-  const sign = m[1] ? '−' : ''; // Typografisches Minus für PDF
+  if (!m) return interval;
+  const sign = m[1] ? '−' : '';
   const h = m[2].padStart(2, '0');
   const min = m[3].padStart(2, '0');
   return `${sign}${h}:${min}`;
 }
 
-
 function sumIntervals(intervals) {
   let totalSeconds = 0;
   for (const i of intervals) {
     if (!i) continue;
-    // Auch Nachkommastellen, egal wie viele
     const m = String(i).match(/^(-)?(\d+):(\d{2})(?::(\d{2})(?:\.\d{1,6})?)?$/);
     if (!m) continue;
     const neg = m[1] ? -1 : 1;
@@ -98,8 +93,6 @@ function sumIntervals(intervals) {
   const sign = totalSeconds < 0 ? '−' : '';
   return `${sign}${h.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`;
 }
-
-
 
 async function renderPdf(template, vars, outPath) {
   let html = template;
@@ -128,28 +121,28 @@ async function renderExcel(zeiten, outPath) {
     { header: 'Netto', key: 'gesamt_netto', width: 10 },
     { header: 'Über-/Minusstunden', key: 'ueber_unter_stunden', width: 14 }
   ];
-for (const z of zeiten) {
+  for (const z of zeiten) {
+    sheet.addRow({
+      datum: formatDateDE(z.datum),
+      tagesstatus: z.tagesstatus || '',
+      erster_start: z.erster_start ? z.erster_start.substring(11, 16) : '',
+      letzter_ende: z.letzter_ende ? z.letzter_ende.substring(11, 16) : '',
+      gesamt_pause: intervalToStr(z.gesamt_pause),
+      gesamt_netto: intervalToStr(z.gesamt_netto),
+      ueber_unter_stunden: intervalToStr(z.ueber_unter_stunden),
+    });
+  }
+  // Summen
+  const pauseSum = sumIntervals(zeiten.map(z => z.gesamt_pause));
+  const nettoSum = sumIntervals(zeiten.map(z => z.gesamt_netto));
+  const ueberSum = sumIntervals(zeiten.map(z => z.ueber_unter_stunden));
+  sheet.addRow({});
   sheet.addRow({
-    datum: formatDateDE(z.datum),
-    tagesstatus: z.tagesstatus || '',
-    erster_start: z.erster_start ? z.erster_start.substring(11, 16) : '',
-    letzter_ende: z.letzter_ende ? z.letzter_ende.substring(11, 16) : '',
-    gesamt_pause: intervalToStr(z.gesamt_pause),
-    gesamt_netto: intervalToStr(z.gesamt_netto),
-    ueber_unter_stunden: intervalToStr(z.ueber_unter_stunden),
+    datum: 'Summe',
+    gesamt_pause: pauseSum,
+    gesamt_netto: nettoSum,
+    ueber_unter_stunden: ueberSum,
   });
-}
-// Summen
-const pauseSum = sumIntervals(zeiten.map(z => z.gesamt_pause));
-const nettoSum = sumIntervals(zeiten.map(z => z.gesamt_netto));
-const ueberSum = sumIntervals(zeiten.map(z => z.ueber_unter_stunden));
-sheet.addRow({});
-sheet.addRow({
-  datum: 'Summe',
-  gesamt_pause: pauseSum,
-  gesamt_netto: nettoSum,
-  ueber_unter_stunden: ueberSum,
-});
 
   await workbook.xlsx.writeFile(outPath);
 }
@@ -181,13 +174,27 @@ async function getFeiertage(land, bundesland, von, bis) {
   return (data || []).map(f => f.datum);
 }
 
-function getNextVersanddatum(sollversand, heute, feiertage) {
-  const jahr = heute.getMonth() === 11 ? heute.getFullYear() + 1 : heute.getFullYear();
-  const monat = (heute.getMonth() + 1) % 12;
-  let d = new Date(jahr, monat, sollversand);
-  if (d <= heute) d = new Date(jahr, monat + 1, sollversand);
-  // Schiebe zurück auf Freitag, falls Sa/So oder Feiertag
-  while (d.getDay() === 0 || d.getDay() === 6 || feiertage.includes(d.toISOString().split('T')[0])) {
+function getLastDayOfMonth(year, month) {
+  // month: 1-basiert (Januar = 1)
+  return new Date(year, month, 0).getDate();
+}
+
+// NEU: Findet den letzten gültigen Versand-Tag (kein Wochenende, kein Feiertag)
+function getValidVersandtag(year, month, tag, feiertage) {
+  // year: z.B. 2025, month: 1-basiert (August=8), tag: Tag im Monat (z.B. 15)
+  // feiertage: Array aus 'YYYY-MM-DD'
+  let d = new Date(year, month - 1, tag);
+
+  // Wenn Tag im Monat nicht existiert, auf Monatsende setzen
+  const lastDay = getLastDayOfMonth(year, month);
+  if (tag > lastDay) d.setDate(lastDay);
+
+  // Rückwärts auf letzten Arbeitstag, falls Wochenende oder Feiertag
+  while (
+    d.getDay() === 0 || // Sonntag
+    d.getDay() === 6 || // Samstag
+    feiertage.includes(d.toISOString().split('T')[0])
+  ) {
     d.setDate(d.getDate() - 1);
   }
   return d;
@@ -221,11 +228,12 @@ async function main() {
   }
 
   // Logo laden als DataURL:
-  const logoBuffer = await fs.readFile(path.resolve('templates/logo.png')); // Passe ggf. Dateiname an!
+  const logoBuffer = await fs.readFile(path.resolve('templates/logo.png'));
   const logoDataUrl = 'data:image/png;base64,' + logoBuffer.toString('base64');
 
   for (const kunde of kunden) {
-    const { id: kunden_id, name: firma_name, lastversand, erstellungsdatum, sollversand, land, bundesland } = kunde;
+    const { id: kunden_id, name: firma_name, istversand, lastversand, erstellungsdatum, sollversand, land, bundesland } = kunde;
+
     let von;
     if (lastversand) {
       von = new Date(heute.getFullYear(), heute.getMonth() - 1, lastversand);
@@ -316,23 +324,40 @@ async function main() {
       }
     }
 
-    // lastversand & istversand setzen, wenn mind. ein Bericht erzeugt wurde
+    // lastversand und istversand updaten
     if (berichteErzeugt && sollversand) {
       try {
-        const nextMonth = (heute.getMonth() + 1) % 12;
-        const nextYear = heute.getMonth() === 11 ? heute.getFullYear() + 1 : heute.getFullYear();
+        // lastversand = bisheriger istversand
+        const previousIstversand = istversand || heute.getDate();
+
+        // Zielmonat und Jahr bestimmen (kommender Monat)
+        const targetMonth = heute.getMonth() + 2; // +1 für kommender Monat, +1 da 1-basiert für getLastDayOfMonth
+        const targetYear = heute.getMonth() === 11 ? heute.getFullYear() + 1 : heute.getFullYear();
+
+        // Feiertage für kommenden Monat laden
+        const lastDayOfTargetMonth = getLastDayOfMonth(targetYear, targetMonth);
         const feiertage = await getFeiertage(
           land,
           bundesland,
-          `${nextYear}-${String(nextMonth+1).padStart(2, '0')}-01`,
-          `${nextYear}-${String(nextMonth+1).padStart(2, '0')}-31`
+          `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`,
+          `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(lastDayOfTargetMonth).padStart(2, '0')}`
         );
-        const nextVersand = getNextVersanddatum(sollversand, heute, feiertage);
+
+        // Neuen istversand korrekt bestimmen (sollversand berücksichtigen, Wochenenden und Feiertage prüfen)
+        let versandtagInt = Number(sollversand);
+        if (!Number.isInteger(versandtagInt) || versandtagInt < 1) {
+          versandtagInt = 1;
+        }
+        const nextVersandDate = getValidVersandtag(targetYear, targetMonth, versandtagInt, feiertage);
+
+        // Update in Supabase
         await supabase
           .from('kunden')
-          .update({ lastversand: heute.getDate(), istversand: nextVersand.getDate() })
+          .update({ lastversand: previousIstversand, istversand: nextVersandDate.getDate() })
           .eq('id', kunden_id);
-        console.log(`lastversand & istversand für ${firma_name} aktualisiert! Neuer istversand: ${nextVersand.toISOString().slice(0,10)}`);
+        console.log(
+          `lastversand & istversand für ${firma_name} aktualisiert! Neuer istversand: ${nextVersandDate.toISOString().slice(0,10)}`
+        );
       } catch (err) {
         console.error(`Fehler beim Aktualisieren von lastversand/istversand für ${firma_name}:`, err);
       }
