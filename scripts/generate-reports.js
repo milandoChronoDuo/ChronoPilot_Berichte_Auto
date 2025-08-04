@@ -166,7 +166,7 @@ async function getFeiertage(bundesland, von, bis) {
   const { data, error } = await supabase
     .from('feiertage')
     .select('datum')
-    .eq('bundesland', bl)
+    .contains('bundesland', [bl]) // <--- DAS ist der Unterschied!
     .gte('datum', von)
     .lte('datum', bis);
   if (error) throw error;
@@ -174,6 +174,7 @@ async function getFeiertage(bundesland, von, bis) {
   console.log(`[Feiertags-Check] Bundesland "${bl}" Feiertage im Monat:`, feiertage);
   return feiertage;
 }
+
 
 function getLastDayOfMonth(year, month) {
   return new Date(year, month, 0).getDate();
