@@ -66,29 +66,39 @@ async function getZeiten(kunden_id, mitarbeiter_id, von, bis) {
 }
 
 function intervalToStr(interval) {
-  if (!interval) return '';
-  return interval;
+  // Wandelt alles robust in "±hh:mm" um, egal wie der Wert aussieht
+  if (!interval) return '00:00';
+  // Pattern nimmt auch "12:34:56.123456", "-05:23:01", "7:01", usw.
+  const m = String(interval).match(/^(-)?(\d+):(\d{2})(?::(\d{2})(?:\.\d{1,6})?)?$/);
+  if (!m) return interval; // Fallback: unverändert
+  const sign = m[1] ? '−' : ''; // Typografisches Minus für PDF
+  const h = m[2].padStart(2, '0');
+  const min = m[3].padStart(2, '0');
+  return `${sign}${h}:${min}`;
 }
+
 
 function sumIntervals(intervals) {
   let totalSeconds = 0;
   for (const i of intervals) {
     if (!i) continue;
-    const negative = i.startsWith('-');
-    const parts = (negative ? i.slice(1) : i).split(':');
-    if (parts.length !== 3) continue;
-    const [h, m, s] = parts.map(Number);
-    let seconds = h * 3600 + m * 60 + s;
-    if (negative) seconds = -seconds;
-    totalSeconds += seconds;
+    // Auch Nachkommastellen, egal wie viele
+    const m = String(i).match(/^(-)?(\d+):(\d{2})(?::(\d{2})(?:\.\d{1,6})?)?$/);
+    if (!m) continue;
+    const neg = m[1] ? -1 : 1;
+    const h = parseInt(m[2], 10);
+    const m_ = parseInt(m[3], 10);
+    const s = m[4] ? parseInt(m[4], 10) : 0;
+    let sec = h * 3600 + m_ * 60 + s;
+    totalSeconds += neg * sec;
   }
   const abs = Math.abs(totalSeconds);
   const h = Math.floor(abs / 3600);
-  const m = Math.floor((abs % 3600) / 60);
-  const s = abs % 60;
-  const sign = totalSeconds < 0 ? '-' : '';
-  return `${sign}${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  const min = Math.floor((abs % 3600) / 60);
+  const sign = totalSeconds < 0 ? '−' : '';
+  return `${sign}${h.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`;
 }
+
 
 
 async function renderPdf(template, vars, outPath) {
@@ -118,27 +128,29 @@ async function renderExcel(zeiten, outPath) {
     { header: 'Netto', key: 'gesamt_netto', width: 10 },
     { header: 'Über-/Minusstunden', key: 'ueber_unter_stunden', width: 14 }
   ];
-  for (const z of zeiten) {
-    sheet.addRow({
-      datum: formatDateDE(z.datum),
-      tagesstatus: z.tagesstatus || '',
-      erster_start: z.erster_start ? z.erster_start.substring(11, 16) : '',
-      letzter_ende: z.letzter_ende ? z.letzter_ende.substring(11, 16) : '',
-      gesamt_pause: intervalToStr(z.gesamt_pause),
-      gesamt_netto: intervalToStr(z.gesamt_netto),
-      ueber_unter_stunden: intervalToStr(z.ueber_unter_stunden),
-    });
-  }
-  const pauseSum = sumIntervals(zeiten.map(z => z.gesamt_pause));
-  const nettoSum = sumIntervals(zeiten.map(z => z.gesamt_netto));
-  const ueberSum = sumIntervals(zeiten.map(z => z.ueber_unter_stunden));
-  sheet.addRow({});
+for (const z of zeiten) {
   sheet.addRow({
-    datum: 'Summe',
-    gesamt_pause: pauseSum,
-    gesamt_netto: nettoSum,
-    ueber_unter_stunden: ueberSum,
+    datum: formatDateDE(z.datum),
+    tagesstatus: z.tagesstatus || '',
+    erster_start: z.erster_start ? z.erster_start.substring(11, 16) : '',
+    letzter_ende: z.letzter_ende ? z.letzter_ende.substring(11, 16) : '',
+    gesamt_pause: intervalToStr(z.gesamt_pause),
+    gesamt_netto: intervalToStr(z.gesamt_netto),
+    ueber_unter_stunden: intervalToStr(z.ueber_unter_stunden),
   });
+}
+// Summen
+const pauseSum = sumIntervals(zeiten.map(z => z.gesamt_pause));
+const nettoSum = sumIntervals(zeiten.map(z => z.gesamt_netto));
+const ueberSum = sumIntervals(zeiten.map(z => z.ueber_unter_stunden));
+sheet.addRow({});
+sheet.addRow({
+  datum: 'Summe',
+  gesamt_pause: pauseSum,
+  gesamt_netto: nettoSum,
+  ueber_unter_stunden: ueberSum,
+});
+
   await workbook.xlsx.writeFile(outPath);
 }
 
