@@ -161,20 +161,26 @@ async function uploadToBucket(localPath, bucket, remotePath) {
   if (error) throw error;
 }
 
+// Feiertage für einen Monat vorab laden
 async function getFeiertage(bundesland, von, bis) {
   const bl = (bundesland || '').toLowerCase();
   const { data, error } = await supabase
     .from('feiertage')
-    .select('datum')
-    .contains('bundesland', [bl]) // <--- DAS ist der Unterschied!
+    .select('datum,bundesland')
     .gte('datum', von)
     .lte('datum', bis);
   if (error) throw error;
-  const feiertage = (data || []).map(f => f.datum);
+  // Lokale Filterung wegen Text-Feld, kein echtes Array
+  const feiertage = (data || [])
+    .filter(f => {
+      if (!f.bundesland) return false;
+      // Entfernt Klammern und Leerzeichen, splittet nach Komma und prüft auf "bl"
+      return f.bundesland.replace(/[\{\}\s]/g, '').split(',').includes(bl);
+    })
+    .map(f => f.datum);
   console.log(`[Feiertags-Check] Bundesland "${bl}" Feiertage im Monat:`, feiertage);
   return feiertage;
 }
-
 
 function getLastDayOfMonth(year, month) {
   return new Date(year, month, 0).getDate();
