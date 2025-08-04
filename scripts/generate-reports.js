@@ -161,7 +161,6 @@ async function uploadToBucket(localPath, bucket, remotePath) {
   if (error) throw error;
 }
 
-// Feiertage für einen Monat vorab laden (bundesland = offizieller Code! z.B. "by")
 async function getFeiertage(bundesland, von, bis) {
   const bl = (bundesland || '').toLowerCase();
   const { data, error } = await supabase
@@ -171,25 +170,35 @@ async function getFeiertage(bundesland, von, bis) {
     .gte('datum', von)
     .lte('datum', bis);
   if (error) throw error;
-  return (data || []).map(f => f.datum);
+  const feiertage = (data || []).map(f => f.datum);
+  console.log(`[Feiertags-Check] Bundesland "${bl}" Feiertage im Monat:`, feiertage);
+  return feiertage;
 }
 
-// Bestimmt den letzten Tag eines Monats
 function getLastDayOfMonth(year, month) {
   return new Date(year, month, 0).getDate();
 }
 
-// Liefert den ersten Versandtag vor dem gegebenen Tag, der kein Wochenende und kein Feiertag ist
 function getValidVersandtag(year, month, tag, feiertage) {
   let d = new Date(year, month - 1, tag);
   const lastDay = getLastDayOfMonth(year, month);
   if (tag > lastDay) d.setDate(lastDay);
 
-  while (
-    d.getDay() === 0 || // Sonntag
-    d.getDay() === 6 || // Samstag
-    feiertage.includes(d.toISOString().split('T')[0])
-  ) {
+  while (true) {
+    const isSonntag = d.getDay() === 0;
+    const isSamstag = d.getDay() === 6;
+    const isoDatum = d.toISOString().split('T')[0];
+    const isFeiertag = feiertage.includes(isoDatum);
+
+    if (!isSonntag && !isSamstag && !isFeiertag) {
+      console.log(`[Versand-Tag] Tag gefunden: ${isoDatum} (Wochentag: ${d.getDay()})`);
+      break;
+    }
+
+    console.log(`[Versand-Tag] ${isoDatum} ist ein`, 
+      isSonntag ? 'Sonntag' : isSamstag ? 'Samstag' : '', 
+      isFeiertag ? 'Feiertag' : ''
+    );
     d.setDate(d.getDate() - 1);
   }
   return d;
@@ -336,6 +345,7 @@ async function main() {
 
         let versandtagInt = Number(sollversand);
         if (!Number.isInteger(versandtagInt) || versandtagInt < 1) versandtagInt = 1;
+        console.log(`[Versand-Tag] Suche Versandtag für Monat ${targetMonth}/${targetYear} (gewünscht: ${versandtagInt})`);
         const nextVersandDate = getValidVersandtag(targetYear, targetMonth, versandtagInt, feiertage);
 
         await supabase
