@@ -19,26 +19,6 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-// ---- NEU: Mapping ausgeschriebene Namen → Kürzel ----
-const BUNDESLAND_CODES = {
-  'Baden-Württemberg': 'bw',
-  'Bayern': 'by',
-  'Berlin': 'be',
-  'Brandenburg': 'bb',
-  'Bremen': 'hb',
-  'Hamburg': 'hh',
-  'Hessen': 'he',
-  'Mecklenburg-Vorpommern': 'mv',
-  'Niedersachsen': 'ni',
-  'Nordrhein-Westfalen': 'nw',
-  'Rheinland-Pfalz': 'rp',
-  'Saarland': 'sl',
-  'Sachsen': 'sn',
-  'Sachsen-Anhalt': 'st',
-  'Schleswig-Holstein': 'sh',
-  'Thüringen': 'th'
-};
-
 function formatDateDE(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -181,37 +161,30 @@ async function uploadToBucket(localPath, bucket, remotePath) {
   if (error) throw error;
 }
 
-// ---- NEU: Feiertage-Query mit Mapping ----
-async function getFeiertage(land, bundesland, von, bis) {
-  // land kann leer sein, aber bundesland wird gemappt
-  const mappedBundesland = (BUNDESLAND_CODES[bundesland] || bundesland || '').toLowerCase();
-  const mappedLand = (land || '').toLowerCase();
+// Feiertage für einen Monat vorab laden (bundesland = offizieller Code! z.B. "by")
+async function getFeiertage(bundesland, von, bis) {
+  const bl = (bundesland || '').toLowerCase();
   const { data, error } = await supabase
     .from('feiertage')
     .select('datum')
-    .eq('land', mappedLand)
-    .eq('bundesland', mappedBundesland)
+    .eq('bundesland', bl)
     .gte('datum', von)
     .lte('datum', bis);
   if (error) throw error;
   return (data || []).map(f => f.datum);
 }
 
+// Bestimmt den letzten Tag eines Monats
 function getLastDayOfMonth(year, month) {
-  // month: 1-basiert (Januar = 1)
   return new Date(year, month, 0).getDate();
 }
 
+// Liefert den ersten Versandtag vor dem gegebenen Tag, der kein Wochenende und kein Feiertag ist
 function getValidVersandtag(year, month, tag, feiertage) {
-  // year z.B. 2025, month: 1-basiert (August=8), tag: 15
-  // feiertage: Array aus 'YYYY-MM-DD'
   let d = new Date(year, month - 1, tag);
-
-  // Korrigiere, falls Tag zu hoch für Monat ist
   const lastDay = getLastDayOfMonth(year, month);
   if (tag > lastDay) d.setDate(lastDay);
 
-  // Solange das Datum ein Samstag, Sonntag ODER Feiertag ist: Einen Tag zurück!
   while (
     d.getDay() === 0 || // Sonntag
     d.getDay() === 6 || // Samstag
@@ -221,7 +194,6 @@ function getValidVersandtag(year, month, tag, feiertage) {
   }
   return d;
 }
-
 
 async function main() {
   console.log('Starte Berichtsexport. Heute:', new Date().toISOString());
@@ -254,7 +226,7 @@ async function main() {
   const logoDataUrl = 'data:image/png;base64,' + logoBuffer.toString('base64');
 
   for (const kunde of kunden) {
-    const { id: kunden_id, name: firma_name, istversand, lastversand, erstellungsdatum, sollversand, land, bundesland } = kunde;
+    const { id: kunden_id, name: firma_name, istversand, lastversand, sollversand, bundesland } = kunde;
 
     let von;
     if (lastversand) {
@@ -344,35 +316,28 @@ async function main() {
       }
     }
 
-    // lastversand und istversand für **nächsten Monat** updaten
+    // lastversand und istversand für nächsten Monat berechnen
     if (berichteErzeugt && sollversand) {
       try {
-        // lastversand = vorheriger istversand
         const previousIstversand = istversand || heute.getDate();
 
-        // Zielmonat und Jahr bestimmen (nächster Monat)
-        let targetMonth = heute.getMonth() + 2; // 1-basiert für Date-Konstruktor (Jan=1), +1 für nächsten Monat
+        // Nächsten Monat bestimmen:
+        let targetMonth = heute.getMonth() + 2; // JS: Januar=0, daher +2 für nächsten Monat (1-basiert)
         let targetYear = heute.getFullYear();
         if (targetMonth > 12) {
           targetMonth = 1;
           targetYear++;
         }
 
-        // Feiertage für den nächsten Monat laden (Mapping!)
         const lastDayOfTargetMonth = getLastDayOfMonth(targetYear, targetMonth);
-        const feiertage = await getFeiertage(
-          land,
-          bundesland,
-          `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`,
-          `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(lastDayOfTargetMonth).padStart(2, '0')}`
-        );
+        const firstDayStr = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`;
+        const lastDayStr = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(lastDayOfTargetMonth).padStart(2, '0')}`;
+        const feiertage = await getFeiertage(bundesland, firstDayStr, lastDayStr);
 
-        // Berechne istversand für den nächsten Monat
         let versandtagInt = Number(sollversand);
         if (!Number.isInteger(versandtagInt) || versandtagInt < 1) versandtagInt = 1;
         const nextVersandDate = getValidVersandtag(targetYear, targetMonth, versandtagInt, feiertage);
 
-        // Update in Supabase
         await supabase
           .from('kunden')
           .update({ lastversand: previousIstversand, istversand: nextVersandDate.getDate() })
